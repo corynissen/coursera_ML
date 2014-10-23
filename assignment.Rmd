@@ -1,0 +1,81 @@
+---
+title: "Coursera ML Assignment"
+author: "Cory Nissen"
+date: "10/23/2014"
+output: html_document
+---
+First, read in the training data set.
+```{r eval=FALSE}
+df <- read.csv("pml-training.csv", stringsAsFactors=F)
+```
+There are 160 columns of data. Many of these have mostly NA or "" (blank) values. I'll start by working with only the well populated data, and if I need to, I'll take a look at the sparse data later.
+  
+```{r eval=FALSE}
+df <- df[,apply(df,2,function(x) sum(is.na(x)) / nrow(df) < .25)]
+is.blank <- function(x)x==""
+df <- df[,apply(df,2,function(x) sum(is.blank(x)) / nrow(df) < .25)]
+```
+  
+Partition data...
+```{r eval=FALSE}
+library(caret)
+set.seed(1)
+# party only takes numeric 
+df$classe2 <- as.numeric(as.factor(df$classe))
+df$classe3 <- as.factor(df$classe)
+inTrain <- createDataPartition(y=df$classe, p=.70, list=FALSE)
+df_train <- df[inTrain,]
+df_test <- df[-inTrain,]
+```
+
+Now run some models...  
+```{r eval=FALSE}
+# kappa .7993
+library(party)
+vars <- names(df_train)[8:59]
+form1 <- as.formula(paste("classe2 ~ ", paste(vars, collapse="+")))
+model_ctree <- ctree(form1, data = df_train) 
+pred_ctree <- predict(model_ctree, newdata=df_test)
+confusionMatrix(round(pred_ctree), df_test$classe2)
+
+# Kappa = .7242
+vars <- names(df_train)[8:59]
+form2 <- as.formula(paste("classe3 ~ ", paste(vars, collapse="+")))
+ctrl <- trainControl(method = "repeatedcv", repeats = 10)
+svmmod <- train(form2, data=df_train, method = "svmLinear", trControl = ctrl)
+pred_svm <- predict(svmmod, newdata=df_test)
+confusionMatrix(pred_svm, df_test$classe3)
+
+# Kappa = .9938
+vars <- names(df_train)[8:59]
+form1 <- as.formula(paste("classe3 ~ ", paste(vars, collapse="+")))
+fitControl <- trainControl(method="repeatedcv",
+                           number=5,
+                           repeats=1,
+                           verboseIter=TRUE)
+gbmGrid <- expand.grid(.interaction.depth = (1:5) * 2,
+                       .n.trees = (1:10)*25, .shrinkage = .1)
+gbmFit <- train(form1, data=df_train,
+                method="gbm", bag.fraction = 0.5,
+                trControl=fitControl,
+                verbose=FALSE, tuneGrid = gbmGrid)
+gbmFit
+gbm_pred <- predict(gbmFit, df_test)
+confusionMatrix(gbm_pred, df_test$classe3)
+```
+
+Now predict using test data.
+```{r eval=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("output/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+test <- read.csv("pml-testing.csv", stringsAsFactors=F)
+answers <- predict(gbmFit, test)
+pml_write_files(answers)
+```
+
+

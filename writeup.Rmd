@@ -1,0 +1,69 @@
+---
+title: "Coursera ML Write Up"
+author: "Cory Nissen"
+date: "10/23/2014"
+output: html_document
+---
+
+To start the model building process, I read in the data. I noticed several of the columns had a high number of missing or blank values, so I excluded those from consideration when building the model.  
+
+```{r eval=FALSE}
+df <- read.csv("pml-training.csv", stringsAsFactors=F)
+df <- df[,apply(df,2,function(x) sum(is.na(x)) / nrow(df) < .25)]
+is.blank <- function(x)x==""
+df <- df[,apply(df,2,function(x) sum(is.blank(x)) / nrow(df) < .25)]
+```
+
+Next, since the training set was sufficiently large, I split it up into a "training" and "test" set to get an idea of what the out of sample error might be.  
+```{r eval=FALSE}
+library(caret)
+set.seed(1)
+df$classe2 <- as.numeric(as.factor(df$classe))
+df$classe3 <- as.factor(df$classe)
+inTrain <- createDataPartition(y=df$classe, p=.70, list=FALSE)
+df_train <- df[inTrain,]
+df_test <- df[-inTrain,]
+```
+
+Then I started building models. I built the model formula as follows:  
+```{r eval=FALSE}
+vars <- names(df_train)[8:59]
+form2 <- as.formula(paste("classe3 ~ ", paste(vars, collapse="+")))
+```
+
+I started with a tree using party::ctree. The kappa was .7993. I tried an svm model that had a kappa of .7242. I ended up using a gbm using repeated cross validation using the following code for a kappa of .9938:  
+```{r eval=FALSE}
+fitControl <- trainControl(method="repeatedcv",
+                           number=5,
+                           repeats=1,
+                           verboseIter=TRUE)
+gbmGrid <- expand.grid(.interaction.depth = (1:5) * 2,
+                       .n.trees = (1:10)*25, .shrinkage = .1)
+gbmFit <- train(form1, data=df_train,
+                method="gbm", bag.fraction = 0.5,
+                trControl=fitControl,
+                verbose=FALSE, tuneGrid = gbmGrid)
+gbmFit
+gbm_pred <- predict(gbmFit, df_test)
+confusionMatrix(gbm_pred, df_test$classe3)
+```
+The accuracy was .9954 using the "test" set. This is my estimate for out of sample error.  
+
+Predicting using the "official" 20 test cases was 20 for 20 correct:  
+```{r eval=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("output/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+test <- read.csv("pml-testing.csv", stringsAsFactors=F)
+answers <- predict(gbmFit, test)
+pml_write_files(answers)
+```
+
+
+
+
+
